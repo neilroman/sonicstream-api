@@ -6,13 +6,11 @@ const INVIDIOUS = [
   'https://invidious.nerdvpn.de',
   'https://yewtu.be',
   'https://iv.melmac.space',
-  'https://invidious.io',
   'https://invidious.privacydev.net',
   'https://vid.puffyan.us'
 ];
 
-export default async function handler(req, res) {
-  // Allow CORS from anywhere
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -50,4 +48,4 @@ export default async function handler(req, res) {
   }
 
   return res.status(404).json({ error: 'Video not found' });
-}
+};
