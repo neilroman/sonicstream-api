@@ -1,4 +1,3 @@
-// Vercel proxy para Cobalt API - evita CORS del navegador
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -10,64 +9,68 @@ module.exports = async function handler(req, res) {
   const ytUrl = 'https://www.youtube.com/watch?v=' + id;
   const isAudio = type === 'mp3';
 
-  // Try multiple Cobalt instances
+  // Public Cobalt instances that allow API access
   const COBALT_INSTANCES = [
-    'https://api.cobalt.tools/api/json',
-    'https://cobalt.tools/api/json'
+    'https://cobalt.zyber.gg/api/json',
+    'https://cob.freetube.cc/api/json',
+    'https://cobalt.api.onrender.com/api/json',
+    'https://cobalt-api.zyber.gg/api/json',
+    'https://api.cobalt.tools/api/json'
   ];
 
-  for (const cobaltApi of COBALT_INSTANCES) {
-    try {
-      const body = isAudio
-        ? { url: ytUrl, isAudioOnly: true, aFormat: 'mp3', filenamePattern: 'basic' }
-        : { url: ytUrl, vCodec: 'h264', vQuality: '720', isAudioOnly: false, filenamePattern: 'basic' };
+  const body = isAudio
+    ? { url: ytUrl, isAudioOnly: true, aFormat: 'mp3', filenamePattern: 'basic' }
+    : { url: ytUrl, vCodec: 'h264', vQuality: '720', isAudioOnly: false, filenamePattern: 'basic' };
 
-      const r = await fetch(cobaltApi, {
+  for (const instance of COBALT_INSTANCES) {
+    try {
+      const r = await fetch(instance, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0'
+          'User-Agent': 'Mozilla/5.0 (compatible; SonicStream/1.0)'
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10000)
       });
 
-      if (!r.ok) continue;
+      if (!r.ok) {
+        console.log('[Cobalt] HTTP error from', instance, r.status);
+        continue;
+      }
+
       const data = await r.json();
-      console.log('[Cobalt]', cobaltApi, 'status:', data.status);
+      console.log('[Cobalt]', instance, '-> status:', data.status);
 
       if (data.status === 'stream' || data.status === 'redirect' || data.status === 'tunnel') {
-        return res.status(200).json({ url: data.url, status: data.status });
+        return res.status(200).json({ url: data.url, filename: data.filename });
       }
-      if (data.status === 'picker') {
-        // Multiple streams - pick best
-        const best = data.picker && data.picker[0];
-        if (best && best.url) return res.status(200).json({ url: best.url, status: 'picker' });
+      if (data.status === 'picker' && data.picker && data.picker[0]) {
+        return res.status(200).json({ url: data.picker[0].url });
       }
     } catch(e) {
-      console.warn('[Cobalt] Failed:', cobaltApi, e.message);
+      console.warn('[Cobalt] Failed:', instance, e.message);
       continue;
     }
   }
 
-  // Fallback to Vevioz for audio
-  if (isAudio) {
-    try {
-      const vr = await fetch(`https://api.vevioz.com/@api/json/mp3/${id}`, {
-        headers: { 'Referer': 'https://www.vevioz.com/', 'User-Agent': 'Mozilla/5.0' }
-      });
-      const vd = await vr.json();
-      const findUrl = (obj) => {
-        if (!obj || typeof obj !== 'object') return null;
-        if (typeof obj === 'string' && obj.startsWith('http')) return obj;
-        for (const v of Object.values(obj)) { const f = findUrl(v); if (f) return f; }
-        return null;
-      };
-      const mp3url = findUrl(vd);
-      if (mp3url) return res.status(200).json({ url: mp3url, status: 'vevioz' });
-    } catch(e) {}
-  }
+  // Fallback: yt-dlp via alternative API
+  try {
+    const r2 = await fetch(`https://api.vevioz.com/@api/json/mp3/${id}`, {
+      headers: { 'Referer': 'https://www.vevioz.com/', 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(8000)
+    });
+    const d2 = await r2.json();
+    const findUrl = (obj) => {
+      if (!obj || typeof obj !== 'object') return null;
+      if (typeof obj === 'string' && obj.startsWith('http')) return obj;
+      for (const v of Object.values(obj)) { const f = findUrl(v); if (f) return f; }
+      return null;
+    };
+    const url = findUrl(d2);
+    if (url) return res.status(200).json({ url, source: 'vevioz' });
+  } catch(e) {}
 
   return res.status(404).json({ error: 'Could not get download URL' });
 };
